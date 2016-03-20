@@ -1,0 +1,134 @@
+# login to your sandbox as the user01 user
+ssh -p 2222 user01@localhost
+
+# switch user to root
+su
+
+# install oozie packages
+yum install mapr-oozie mapr-oozie-internal
+
+
+# modify mapred-site.xml for oozie
+vi /opt/mapr/hadoop/hadoop-2.4.1/etc/hadoop/mapred-site.xml
+==> change framework.name from yarn-tez to yarn
+
+# modify core-site.xml to support multiple simultaneous mappers on your sandbox
+vi /opt/mapr/hadoop/hadoop-2.7.0/etc/hadoop/core/site.xml
+—> add the following entries between <configuration> and </configuration> xml tags
+ <property>
+    <name>yarn.scheduler.minimum-allocation-mb</name>
+    <value>512</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.maximum-allocation-mb</name>
+    <value>2048</value>
+  </property>
+  <property>
+    <name>yarn.scheduler.increment-allocation-mb</name>
+    <value>128</value>
+  </property>
+  <property>
+     <name>yarn.nodemanager.resource.memory-mb</name>
+     <value>4096</value>
+  </property>
+  <property>
+     <name>yarn.nodemanager.resource.cpu-vcores</name>
+     <value>4</value>
+  </property>
+  <property>
+     <name>mapreduce.map.memory.mb</name>
+     <value>512</value>
+  </property>
+  <property>
+     <name>mapreduce.reduce.memory.mb</name>
+     <value>512</value>
+  </property>
+  <property>
+     <name>yarn.app.mapreduce.am.resource.mb</name>
+     <value>512</value>
+  </property>
+
+# reconfigure cluster
+/opt/mapr/server/configure.sh -R
+
+# bounce warden to pick up all the changes and restart the services
+service mapr-warden restart
+
+# make sure all the services, including oozie, get started
+maprcli node list
+
+# exit the su command and perform the rest of the steps as the user01 user
+exit
+
+
+mkdir /user/user01/oozie
+cd /user/user01/oozie
+cp /opt/mapr/oozie/oozie-4.2.0/oozie-examples.tar.gz  /user/user01/oozie
+gzip -dc oozie-examples.tar.gz | tar xvf -
+
+cd /user/user01/oozie/examples/apps/map-reduce
+
+
+# edit job properties (make sure non-commented lines look as follows)
+vi job.properties 
+nameNode=maprfs:///
+jobTracker=mapr1node:8032
+queueName=default
+examplesRoot=maprfs:///user/user01/oozie/examples
+oozie.wf.application.path=${examplesRoot}/apps/map-reduce/workflow.xml
+outputDir=maprfs:///user/user01/oozie/map-reduce-out
+
+
+# edit workflow (change from: to:)
+vi workflow.xml
+from:
+<delete path="${nameNode}/user/${wf:user()}/output-data/${outputDir}"/>
+to:
+<delete path="${outputDir}"/>
+
+
+from:
+<value>/user/${wf:user()}/input-data/text</value>
+to:
+<value>/user/${wf:user()}/oozie/examples/input-data/text</value>
+
+from:
+<value>/user/${wf:user()}/output-data/${outputDir}</value>
+to:
+<value>${outputDir}</value>
+
+
+# set some env variables
+export OOZIE_URL=http://mapr1node:11000/oozie
+export OOZIE_HOME=/opt/mapr/oozie/oozie-4.2.0
+export PATH=$PATH:$OOZIE_HOME/bin
+
+# validate that you can connect to oozie
+oozie jobs
+# should see output: No Jobs match your criteria!
+
+# validate your workflow.xml file
+oozie validate workflow.xml
+
+# launch job
+oozie job -config /user/user01/oozie/examples/apps/map-reduce/job.properties -run
+
+# check job status 
+oozie job -info <job-id>
+
+
+# once m/r job is running, you can see it as follows:
+yarn application -list
+
+# depending on how quickly you run the command above after submitting the oozie job, you may see the oozie job launcher first run as a map-only task
+# oozie:launcher:T=map-reduce:W=map-reduce-wf:A=mr-node
+# otherwise, you should see this while the map-reduce job is running
+# oozie:action:T=map-reduce:W=map-reduce-wf:A=mr-node
+
+
+# once the job is done, check output of job 
+hadoop fs -cat /user/user01/oozie/map-reduce-out/part-00000
+
+# based on the name of the output file, which API package does this example code use?
+
+

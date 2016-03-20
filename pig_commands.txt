@@ -1,0 +1,49 @@
+# switch user to root
+su
+
+# install pig
+yum install mapr-pig -y
+
+# create /tmp directory (if it doesn’t already exist) and change perm 
+hadoop fs -ls / (look for /tmp — if it doesn’t exist, then run the next 2 commands)
+hadoop fs -mkdir /tmp
+hadoop fs -chmod 1777 /tmp
+
+
+# switch user to user01 and run the rest of the commands as user01
+su - user01
+
+# 1. put receipts.txt in maprfs
+# NOTE you’ll need to put the receipts.txt file somewhere in your sandbox before running the following commands
+
+hadoop fs -mkdir /user/user01/pig
+hadoop fs -copyFromLocal receipts.txt /user/user01/pig
+
+# 2. create pig script (put following lines in a file called “/user/user01/pig/receipts.pig"
+
+mkdir /user/user01/pig
+cd /user/user01/pig
+vi receipts.pig
+
+A = LOAD '/user/user01/pig/receipts.txt' USING PigStorage(' ') AS (year,x,y,delta:int,rest);
+B = GROUP A ALL;
+mystats = FOREACH B {
+   minrecords = ORDER A BY delta;
+   minrecord = LIMIT minrecords 1;
+   maxrecords = ORDER A BY delta DESC;
+   maxrecord = LIMIT maxrecords 1;
+   GENERATE FLATTEN(minrecord.year) as minyear,FLATTEN(minrecord.delta) as mindelta, FLATTEN(maxrecord.year) as maxyear, FLATTEN(maxrecord.delta) as maxdelta, FLATTEN(AVG(A.delta)) as avgdelta;
+};
+DUMP mystats;
+
+# 3. run pig script
+pig -f /user/user01/pig/receipts.pig
+
+# this will launch a mapreduce job, at the end of which you should see this output (from mystats)
+# note the output will be a little hard to spot because there is so much other output.
+# (2009,-1412688,2000,236241,-93862.91891891892)
+
+# if your pig script ran successfully, try running the command without stderr:
+
+pig -f /user/user01/pig/receipts.pig 2>/dev/null
+
